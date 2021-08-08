@@ -59,6 +59,13 @@ pub fn main() anyerror!u8 {
     // We don't need to free the memory as the operating system will do it for us.
     // defer arena.deinit();
     var allocator = &arena.allocator;
+    var args_iterator = std.process.args();
+    _ = args_iterator.skip();
+
+    var filename = try (args_iterator.next(allocator) orelse {
+        std.debug.warn("First argument should be a filename\n", .{});
+        return error.InvalidArgs;
+    });
 
     const max_threads = try std.Thread.getCpuCount();
 
@@ -66,7 +73,12 @@ pub fn main() anyerror!u8 {
 
     //var threads = try allocator.alloc(std.Thread, max_threads);
 
-    const in = std.io.getStdIn().reader();
+    const file = try std.fs.cwd().openFile(filename, .{ .write = true });
+    defer file.close();
+
+    const in = file.reader();
+
+    // const in = std.io.getStdIn().reader();
 
     // Spawn one thread per counting machine
     for (machines) |*machine|
