@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const buffer_size = 1024 * 1024;
+const buffer_size = 1024 * 1024 * 16;
 const Count = struct { char: u8 = undefined, count: u64 = 0 };
 
 fn cmpCount(comptime _context: type, lhs: Count, rhs: Count) bool {
@@ -28,7 +28,7 @@ const CountingMachine = struct {
     }
 
     fn count(self: *CountingMachine) void {
-        // std.debug.print("Thread starting.\n", .{});
+        std.debug.print("Thread starting.\n", .{});
 
         while (self.state != CountingMachineState.suspended) {
             switch (self.state) {
@@ -37,7 +37,7 @@ const CountingMachine = struct {
             }
         }
 
-        // std.debug.print("Thread ending.\n", .{});
+        std.debug.print("Thread ending.\n", .{});
     }
 
     fn run(self: *CountingMachine) void {
@@ -100,15 +100,16 @@ pub fn main() anyerror!u8 {
     while (input_remaining or working_count > 0) {
         working_count = 0;
         // std.debug.print("Inside infinite loop.\n", .{});
-        for (machines) |*machine| {
-            // std.debug.print("{} machine state\n", .{machine.state});
+
+        for (machines) |*machine, machine_id| {
+            std.debug.print("{} {} machine state\n", .{ machine_id, machine.state });
             switch (machine.state) {
                 .waiting => {
                     if (input_remaining) {
                         var slice = machine.buffer[0..machine.buffer.len];
                         machine.byte_count = try in.read(slice);
 
-                        // std.debug.print("{} bytes read from input.\n", .{machine.byte_count});
+                        std.debug.print("{} bytes read from input.\n", .{machine.byte_count});
 
                         if (machine.byte_count <= 0) {
                             // std.debug.print("No more input.\n", .{});
