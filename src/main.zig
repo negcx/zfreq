@@ -52,6 +52,8 @@ const CountingMachine = struct {
 };
 
 pub fn main() anyerror!u8 {
+    const start_time = std.time.milliTimestamp();
+
     // Allocator
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     // We don't need to free the memory as the operating system will do it for us.
@@ -135,6 +137,10 @@ pub fn main() anyerror!u8 {
 
     for (machines) |*machine|
         machine.thread.join();
+
+    const elapsed = std.time.milliTimestamp() - start_time;
+
+    try out.print("{} ms\n", .{elapsed});
 
     return 0;
 }
