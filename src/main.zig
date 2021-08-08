@@ -80,22 +80,14 @@ pub fn main() anyerror!u8 {
 
     var machines = try allocator.alloc(CountingMachine, max_threads);
 
-    //var threads = try allocator.alloc(std.Thread, max_threads);
-
     const file = try std.fs.cwd().openFile(filename, .{ .write = true });
     defer file.close();
 
     const in = file.reader();
 
-    // const in = std.io.getStdIn().reader();
-
     // Spawn one thread per counting machine
     for (machines) |*machine|
         try machine.init();
-    //     // std.debug.print("{}, {} initial state\n", .{ machine.state, machine.counts[0] });
-    //     var thread = try std.Thread.spawn(.{}, CountingMachine.count, .{machine});
-    //     thread.detach();
-    // }
 
     var counts = [_]Count{.{}} ** 256;
 
