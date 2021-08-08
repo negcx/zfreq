@@ -97,9 +97,9 @@ pub fn main() anyerror!u8 {
 
     // Loop while there is still new input and while threads are still working
     var input_remaining = true;
-    var working_count: u8 = 0;
-    while (input_remaining or working_count > 0) {
-        working_count = 0;
+    var suspended_count: u8 = 0;
+    while (input_remaining or suspended_count < max_threads) {
+        suspended_count = 0;
         // std.debug.print("Inside infinite loop.\n", .{});
 
         for (machines) |*machine, machine_id| {
@@ -121,7 +121,7 @@ pub fn main() anyerror!u8 {
                         machine.state = .suspended;
                     }
                 },
-                .running => working_count += 1,
+                .suspended => suspended_count += 1,
                 else => continue,
             }
         }
