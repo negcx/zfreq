@@ -1,41 +1,127 @@
 const std = @import("std");
 
-pub const Count = struct { char: u8 = undefined, count: u64 = 0 };
+const buffer_size = 1024 * 1024;
+const Count = struct { char: u8 = undefined, count: u64 = 0 };
 
-pub fn cmpCount(comptime _context: type, lhs: Count, rhs: Count) bool {
+fn cmpCount(comptime _context: type, lhs: Count, rhs: Count) bool {
     _ = _context;
     return lhs.count >= rhs.count;
 }
 
+const CountingMachineState = enum { waiting, ready, suspended };
+
+const CountingMachine = struct {
+    counts: [256]u64 = [_]u64{0} ** 256,
+    buffer: [buffer_size]u8 = undefined,
+    byte_count: usize = 0,
+    state: CountingMachineState = CountingMachineState.waiting,
+    thread: std.Thread = undefined,
+
+    fn init(self: *CountingMachine) anyerror!void {
+        for (self.counts) |*c|
+            c.* = 0;
+
+        self.byte_count = 0;
+        self.state = CountingMachineState.waiting;
+
+        self.thread = try std.Thread.spawn(.{}, count, .{self});
+    }
+
+    fn count(self: *CountingMachine) void {
+        // std.debug.print("Thread starting.\n", .{});
+
+        while (self.state != CountingMachineState.suspended) {
+            switch (self.state) {
+                CountingMachineState.ready => self.run(),
+                else => continue,
+            }
+        }
+
+        // std.debug.print("Thread ending.\n", .{});
+    }
+
+    fn run(self: *CountingMachine) void {
+        // std.debug.print("Staring to count in thread...\n", .{});
+
+        const slice = self.buffer[0..self.byte_count];
+        for (slice) |byte| self.counts[byte] += 1;
+        self.state = CountingMachineState.waiting;
+
+        // std.debug.print("Counting in thread finished.\n", .{});
+    }
+};
+
 pub fn main() anyerror!u8 {
+    // Allocator
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    // We don't need to free the memory as the operating system will do it for us.
+    // defer arena.deinit();
+    var allocator = &arena.allocator;
+
+    const max_threads = try std.Thread.getCpuCount();
+
+    var machines = try allocator.alloc(CountingMachine, max_threads);
+
+    //var threads = try allocator.alloc(std.Thread, max_threads);
+
+    const in = std.io.getStdIn().reader();
+
+    // Spawn one thread per counting machine
+    for (machines) |*machine|
+        try machine.init();
+    //     // std.debug.print("{}, {} initial state\n", .{ machine.state, machine.counts[0] });
+    //     var thread = try std.Thread.spawn(.{}, CountingMachine.count, .{machine});
+    //     thread.detach();
+    // }
+
     var counts = [_]Count{.{}} ** 256;
 
     for (counts) |*count, i| {
         count.char = @intCast(u8, i);
     }
 
-    const in = std.io.getStdIn().reader();
-    const out = std.io.getStdOut().writer();
+    // Loop while there is still new input and while threads are still working
+    var input_remaining = true;
+    var working_count: u8 = 0;
+    while (input_remaining or working_count > 0) {
+        working_count = 0;
+        // std.debug.print("Inside infinite loop.\n", .{});
+        for (machines) |*machine| {
+            // std.debug.print("{} machine state\n", .{machine.state});
+            switch (machine.state) {
+                CountingMachineState.waiting => {
+                    if (input_remaining) {
+                        var slice = machine.buffer[0..machine.buffer.len];
+                        machine.byte_count = try in.read(slice);
 
-    // while (true) {
-    //     counts[in.readByte() catch break].count += 1;
-    // }
+                        // std.debug.print("{} bytes read from input.\n", .{machine.byte_count});
 
-    var buffer = try std.heap.page_allocator.alloc(u8, 1024 * 1024);
-    var bytes_read: usize = 1;
-
-    while (true) {
-        bytes_read = try in.read(buffer);
-        if (bytes_read <= 0) {
-            break;
-        }
-        var bytes = buffer[0..bytes_read];
-        for (bytes) |byte| {
-            counts[byte].count += 1;
+                        if (machine.byte_count <= 0) {
+                            // std.debug.print("No more input.\n", .{});
+                            input_remaining = false;
+                            machine.state = CountingMachineState.suspended;
+                        } else machine.state = CountingMachineState.ready;
+                    } else {
+                        machine.state = CountingMachineState.suspended;
+                    }
+                },
+                CountingMachineState.ready => working_count += 1,
+                else => continue,
+            }
         }
     }
 
+    // Sum the results
+    for (machines) |*machine| {
+        for (counts) |*count, i| {
+            count.count += machine.counts[i];
+        }
+    }
+
+    // Sort and print the results
     std.sort.sort(Count, &counts, Count, cmpCount);
+
+    const out = std.io.getStdOut().writer();
 
     for (counts) |*count| {
         if (count.count > 0) {
@@ -46,6 +132,9 @@ pub fn main() anyerror!u8 {
             }
         }
     }
+
+    for (machines) |*machine|
+        machine.thread.join();
 
     return 0;
 }
