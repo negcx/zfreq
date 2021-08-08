@@ -1,20 +1,28 @@
 const std = @import("std");
 
-const buffer_size = 1024 * 1024 * 16;
+const buffer_size = 1024 * 1024;
 const Count = struct { char: u8 = undefined, count: u64 = 0 };
+
+const DEBUG_MODE = false;
+
+fn debug(comptime fmt: []const u8, args: anytype) void {
+    if (DEBUG_MODE) {
+        std.debug.print(fmt, args);
+    }
+}
 
 fn cmpCount(comptime _context: type, lhs: Count, rhs: Count) bool {
     _ = _context;
     return lhs.count >= rhs.count;
 }
 
-const CountingMachineState = enum { waiting, ready, suspended };
+const CountingMachineState = enum { waiting, ready, running, suspended };
 
 const CountingMachine = struct {
     counts: [256]u64 = [_]u64{0} ** 256,
     buffer: [buffer_size]u8 = undefined,
     byte_count: usize = 0,
-    state: CountingMachineState = CountingMachineState.waiting,
+    state: CountingMachineState = .waiting,
     thread: std.Thread = undefined,
 
     fn init(self: *CountingMachine) anyerror!void {
@@ -22,32 +30,33 @@ const CountingMachine = struct {
             c.* = 0;
 
         self.byte_count = 0;
-        self.state = CountingMachineState.waiting;
+        self.state = .waiting;
 
         self.thread = try std.Thread.spawn(.{}, count, .{self});
     }
 
     fn count(self: *CountingMachine) void {
-        std.debug.print("Thread starting.\n", .{});
+        debug("Thread starting.\n", .{});
 
         while (self.state != CountingMachineState.suspended) {
             switch (self.state) {
-                CountingMachineState.ready => self.run(),
+                .ready => self.state = .running,
+                .running => self.run(),
                 else => continue,
             }
         }
 
-        std.debug.print("Thread ending.\n", .{});
+        debug("Thread ending.\n", .{});
     }
 
     fn run(self: *CountingMachine) void {
-        // std.debug.print("Staring to count in thread...\n", .{});
+        debug("{} Staring to count in thread...\n", .{std.Thread.getCurrentId()});
 
         const slice = self.buffer[0..self.byte_count];
         for (slice) |byte| self.counts[byte] += 1;
         self.state = CountingMachineState.waiting;
 
-        // std.debug.print("Counting in thread finished.\n", .{});
+        debug("{} Counting in thread finished.\n", .{std.Thread.getCurrentId()});
     }
 };
 
@@ -102,14 +111,14 @@ pub fn main() anyerror!u8 {
         // std.debug.print("Inside infinite loop.\n", .{});
 
         for (machines) |*machine, machine_id| {
-            std.debug.print("{} {} machine state\n", .{ machine_id, machine.state });
+            debug("{} {} machine state\n", .{ machine_id, machine.state });
             switch (machine.state) {
                 .waiting => {
                     if (input_remaining) {
                         var slice = machine.buffer[0..machine.buffer.len];
                         machine.byte_count = try in.read(slice);
 
-                        std.debug.print("{} bytes read from input.\n", .{machine.byte_count});
+                        debug("{} bytes read from input.\n", .{machine.byte_count});
 
                         if (machine.byte_count <= 0) {
                             // std.debug.print("No more input.\n", .{});
@@ -120,7 +129,7 @@ pub fn main() anyerror!u8 {
                         machine.state = .suspended;
                     }
                 },
-                .ready => working_count += 1,
+                .running => working_count += 1,
                 else => continue,
             }
         }
