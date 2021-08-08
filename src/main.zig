@@ -8,6 +8,8 @@ pub fn cmpCount(comptime _context: type, lhs: Count, rhs: Count) bool {
 }
 
 pub fn main() anyerror!u8 {
+    const start_time = std.time.milliTimestamp();
+
     var counts = [_]Count{.{}} ** 256;
 
     for (counts) |*count, i| {
@@ -16,10 +18,6 @@ pub fn main() anyerror!u8 {
 
     const in = std.io.getStdIn().reader();
     const out = std.io.getStdOut().writer();
-
-    // while (true) {
-    //     counts[in.readByte() catch break].count += 1;
-    // }
 
     var buffer = try std.heap.page_allocator.alloc(u8, 1024 * 1024);
     var bytes_read: usize = 1;
@@ -46,6 +44,10 @@ pub fn main() anyerror!u8 {
             }
         }
     }
+
+    const elapsed = std.time.milliTimestamp() - start_time;
+
+    try out.print("{} ms\n", .{elapsed});
 
     return 0;
 }
