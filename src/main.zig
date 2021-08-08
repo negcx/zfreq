@@ -91,7 +91,7 @@ pub fn main() anyerror!u8 {
         for (machines) |*machine| {
             // std.debug.print("{} machine state\n", .{machine.state});
             switch (machine.state) {
-                CountingMachineState.waiting => {
+                .waiting => {
                     if (input_remaining) {
                         var slice = machine.buffer[0..machine.buffer.len];
                         machine.byte_count = try in.read(slice);
@@ -101,13 +101,13 @@ pub fn main() anyerror!u8 {
                         if (machine.byte_count <= 0) {
                             // std.debug.print("No more input.\n", .{});
                             input_remaining = false;
-                            machine.state = CountingMachineState.suspended;
-                        } else machine.state = CountingMachineState.ready;
+                            machine.state = .suspended;
+                        } else machine.state = .ready;
                     } else {
-                        machine.state = CountingMachineState.suspended;
+                        machine.state = .suspended;
                     }
                 },
-                CountingMachineState.ready => working_count += 1,
+                .ready => working_count += 1,
                 else => continue,
             }
         }
