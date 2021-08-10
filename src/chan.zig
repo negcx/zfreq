@@ -107,6 +107,8 @@ pub fn Channel(comptime T: type) type {
     };
 }
 
+// TESTS
+
 const Message = union(enum) { numbers: i64, results };
 
 fn testThread(input_chan: *Channel(Message), output_chan: *Channel(i64)) void {
