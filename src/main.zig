@@ -21,15 +21,20 @@ pub fn threadWorker(work_chan: *WorkChannel, result_chan: *CountResultChannel) v
     var work_request = WorkRequest{ .buf = &buf, .response_chan = &response_chan };
 
     while (true) {
-        work_chan.send(work_request) catch unreachable;
-        response_chan.recv(&response) catch unreachable;
+        work_chan.send(work_request) catch {
+            result_chan.send(count) catch {
+                @panic("Failed to send results:26\n");
+            };
+            return;
+        };
+        response_chan.recv(&response) catch @panic("Failed to receive response:30\n");
         switch (response) {
             .bytes_read => |bytes_read| {
                 for (buf[0..bytes_read]) |byte| count[byte] += 1;
             },
 
             .eof => {
-                result_chan.send(count) catch unreachable;
+                result_chan.send(count) catch @panic("Failed to send results:37\n");
                 return;
             },
         }
@@ -77,15 +82,16 @@ pub fn main() anyerror!void {
 
     var bytes_read: usize = 0;
     var work_request: WorkRequest = undefined;
-    var eof_sent: u8 = 0;
+    // var eof_sent: u8 = 0;
     var result: CountResult = [_]u64{0} ** 256;
 
-    while (eof_sent < max_threads) {
+    while (true) {
         try request_chan.recv(&work_request);
         bytes_read = try file.read(work_request.buf);
         if (bytes_read > 0) try work_request.response_chan.send(WorkResponse{ .bytes_read = bytes_read }) else {
+            request_chan.close();
             try work_request.response_chan.send(.eof);
-            eof_sent += 1;
+            break;
         }
     }
 
