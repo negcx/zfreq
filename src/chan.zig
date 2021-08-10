@@ -32,11 +32,17 @@ pub fn Channel(comptime T: type) type {
         pub fn send(self: *@This(), data: T) ChannelError!void {
             if (self.closed) return error.Closed;
 
+            const start_time = std.time.milliTimestamp();
+
             const send_lock = self.send_lock.acquire();
             defer send_lock.release();
 
             while (true) {
                 if (self.closed) return error.Closed;
+
+                if (std.time.milliTimestamp() - start_time > 3000) {
+                    std.debug.print("send Timeout: {}\n", .{self.status});
+                }
 
                 switch (self.status) {
                     .waiting_to_recv => {
@@ -57,11 +63,17 @@ pub fn Channel(comptime T: type) type {
             const recv_lock = self.recv_lock.acquire();
             defer recv_lock.release();
 
+            const start_time = std.time.milliTimestamp();
+
             self.recv_ptr = data;
             self.status = .waiting_to_recv;
 
             while (true) {
                 if (self.closed) return error.Closed;
+
+                if (std.time.milliTimestamp() - start_time > 3000) {
+                    std.debug.print("recv Timeout: {}\n", .{self.status});
+                }
 
                 switch (self.status) {
                     .sent => {
