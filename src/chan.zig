@@ -1,3 +1,9 @@
+//! Copyright (c) Kyle Johnson 2021
+//!
+//! The Channels implementation below is an implementation of *unbuffered* channels,
+//! similar to Go's unbuffered channels. Both sides of the channel block until
+//! the message is successfully delivered.
+
 const std = @import("std");
 const testing = std.testing;
 
@@ -20,6 +26,9 @@ pub fn Channel(comptime T: type) type {
         status: ChannelStatus = .new,
         closed: bool = false,
 
+        /// Close does not acquire a read or write lock, but no other functionality writes to
+        /// the `closed` variable. This is intended as a way to shut down all the blocking
+        /// sending and receiving when there is nothing else to send.
         pub fn close(self: *@This()) void {
             self.closed = true;
         }
@@ -29,6 +38,11 @@ pub fn Channel(comptime T: type) type {
             self.recv_ptr = null;
         }
 
+        /// Send will acquire a send lock, ensuring that only one sender can modify data
+        /// at a time. The sender plays a passive role, waiting until the state of the chan
+        /// is in `waiting_to_recv` and until the pointer to the receiver's memory are
+        /// available to act. At that point, only the sender and not the receiver can update
+        /// the channel, copying the data and then transitioning the state to `sent`.
         pub fn send(self: *@This(), data: T) ChannelError!void {
             if (self.closed) return error.Closed;
 
@@ -57,6 +71,12 @@ pub fn Channel(comptime T: type) type {
             }
         }
 
+        /// recv acquires a lock on receiving ensuring its the only receiver that can write
+        /// to the channel. Upon acquiring the lock, it updates the status to `waiting_to_recv`
+        /// and adds its pointer to memory. This is the handoff to the sender. From here, recv
+        /// waits for the state to transition to `sent` at which point the receiver knows that
+        /// the sender has copied memory into its pointer. The receiver then resets the state of
+        /// the channel before releasing its lock.
         pub fn recv(self: *@This(), data: *T) ChannelError!void {
             if (self.closed) return error.Closed;
 
@@ -109,7 +129,6 @@ fn testThread(input_chan: *Channel(Message), output_chan: *Channel(i64)) void {
                 output_chan.send(total) catch {
                     debug("Output channel closed unexpectedly\n", .{});
                 };
-                // total = 0;
                 return;
             },
         }
