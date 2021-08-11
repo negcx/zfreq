@@ -41,16 +41,13 @@ pub fn Channel(comptime T: type) type {
         /// available to act. At that point, only the sender and not the receiver can update
         /// the channel, copying the data and then transitioning the state to `sent`.
         pub fn send(self: *@This(), data: T) ChannelError!void {
-            var closed = false;
-            closed = @atomicLoad(bool, &self.closed, std.builtin.AtomicOrder.Monotonic);
-            if (closed) return error.Closed;
+            if (@atomicLoad(bool, &self.closed, std.builtin.AtomicOrder.Monotonic)) return error.Closed;
 
             const send_lock = self.send_lock.acquire();
             defer send_lock.release();
 
             while (true) {
-                closed = @atomicLoad(bool, &self.closed, std.builtin.AtomicOrder.Monotonic);
-                if (closed) return error.Closed;
+                if (@atomicLoad(bool, &self.closed, std.builtin.AtomicOrder.Monotonic)) return error.Closed;
                 self.ready_to_receive.timedWait(100) catch continue;
                 break;
             }
@@ -67,23 +64,17 @@ pub fn Channel(comptime T: type) type {
         /// the sender has copied memory into its pointer. The receiver then resets the state of
         /// the channel before releasing its lock.
         pub fn recv(self: *@This(), data: *T) ChannelError!void {
-            var closed: bool = false;
-            closed = @atomicLoad(bool, &self.closed, std.builtin.AtomicOrder.Monotonic);
-            if (closed) return error.Closed;
+            if (@atomicLoad(bool, &self.closed, std.builtin.AtomicOrder.Monotonic)) return error.Closed;
 
             const recv_lock = self.recv_lock.acquire();
             defer recv_lock.release();
-
-            closed = @atomicLoad(bool, &self.closed, std.builtin.AtomicOrder.Monotonic);
-            if (closed) return error.Closed;
 
             self.recv_ptr = data;
 
             self.ready_to_receive.set();
 
             while (true) {
-                closed = @atomicLoad(bool, &self.closed, std.builtin.AtomicOrder.Monotonic);
-                if (closed) return error.Closed;
+                if (@atomicLoad(bool, &self.closed, std.builtin.AtomicOrder.Monotonic)) return error.Closed;
 
                 self.sent.timedWait(100) catch continue;
                 break;
