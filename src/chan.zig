@@ -8,6 +8,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Mutex = std.Thread.Mutex;
+const AutoResetEvent = std.Thread.AutoResetEvent;
 
 const DEBUG: bool = false;
 
@@ -22,20 +23,16 @@ pub fn Channel(comptime T: type) type {
     return struct {
         send_lock: Mutex = Mutex{},
         recv_lock: Mutex = Mutex{},
+        ready_to_receive: AutoResetEvent = AutoResetEvent{},
+        sent: AutoResetEvent = AutoResetEvent{},
         recv_ptr: ?*T = null,
-        status: ChannelStatus = .new,
         closed: bool = false,
 
         /// Close does not acquire a read or write lock, but no other functionality writes to
         /// the `closed` variable. This is intended as a way to shut down all the blocking
         /// sending and receiving when there is nothing else to send.
         pub fn close(self: *@This()) void {
-            self.closed = true;
-        }
-
-        fn reset(self: *@This()) void {
-            self.status = .new;
-            self.recv_ptr = null;
+            @atomicStore(bool, &self.closed, true, std.builtin.AtomicOrder.Monotonic);
         }
 
         /// Send will acquire a send lock, ensuring that only one sender can modify data
@@ -44,31 +41,23 @@ pub fn Channel(comptime T: type) type {
         /// available to act. At that point, only the sender and not the receiver can update
         /// the channel, copying the data and then transitioning the state to `sent`.
         pub fn send(self: *@This(), data: T) ChannelError!void {
-            if (self.closed) return error.Closed;
-
-            const start_time = std.time.milliTimestamp();
+            var closed = false;
+            closed = @atomicLoad(bool, &self.closed, std.builtin.AtomicOrder.Monotonic);
+            if (closed) return error.Closed;
 
             const send_lock = self.send_lock.acquire();
             defer send_lock.release();
 
             while (true) {
-                if (self.closed) return error.Closed;
-
-                if (std.time.milliTimestamp() - start_time > 3000) {
-                    std.debug.print("send Timeout: {}\n", .{self.status});
-                }
-
-                switch (self.status) {
-                    .waiting_to_recv => {
-                        if (self.recv_ptr) |recv_ptr| {
-                            recv_ptr.* = data;
-                            self.status = .sent;
-                            return;
-                        }
-                    },
-                    else => {},
-                }
+                closed = @atomicLoad(bool, &self.closed, std.builtin.AtomicOrder.Monotonic);
+                if (closed) return error.Closed;
+                self.ready_to_receive.timedWait(100) catch continue;
+                break;
             }
+
+            if (self.recv_ptr) |recv_ptr| recv_ptr.* = data;
+
+            self.sent.set();
         }
 
         /// recv acquires a lock on receiving ensuring its the only receiver that can write
@@ -78,31 +67,29 @@ pub fn Channel(comptime T: type) type {
         /// the sender has copied memory into its pointer. The receiver then resets the state of
         /// the channel before releasing its lock.
         pub fn recv(self: *@This(), data: *T) ChannelError!void {
-            if (self.closed) return error.Closed;
+            var closed: bool = false;
+            closed = @atomicLoad(bool, &self.closed, std.builtin.AtomicOrder.Monotonic);
+            if (closed) return error.Closed;
 
             const recv_lock = self.recv_lock.acquire();
             defer recv_lock.release();
 
-            const start_time = std.time.milliTimestamp();
+            closed = @atomicLoad(bool, &self.closed, std.builtin.AtomicOrder.Monotonic);
+            if (closed) return error.Closed;
 
             self.recv_ptr = data;
-            self.status = .waiting_to_recv;
+
+            self.ready_to_receive.set();
 
             while (true) {
-                if (self.closed) return error.Closed;
+                closed = @atomicLoad(bool, &self.closed, std.builtin.AtomicOrder.Monotonic);
+                if (closed) return error.Closed;
 
-                if (std.time.milliTimestamp() - start_time > 3000) {
-                    std.debug.print("recv Timeout: {}\n", .{self.status});
-                }
-
-                switch (self.status) {
-                    .sent => {
-                        self.reset();
-                        return;
-                    },
-                    else => {},
-                }
+                self.sent.timedWait(100) catch continue;
+                break;
             }
+
+            self.recv_ptr = null;
         }
     };
 }
